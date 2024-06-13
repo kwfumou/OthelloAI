@@ -1,8 +1,8 @@
 from copy import deepcopy
-import tensorflow as tf
-from tensorflow.keras.layers import Add, Dense, Input, LeakyReLU, Concatenate
-from tensorflow.keras.models import Model
-from tensorflow.keras.callbacks import EarlyStopping
+# import tensorflow as tf
+# from tensorflow.keras.layers import Add, Dense, Input, LeakyReLU, Concatenate
+# from tensorflow.keras.models import Model
+# from tensorflow.keras.callbacks import EarlyStopping
 import numpy as np
 from tqdm import trange, tqdm
 from random import shuffle
@@ -10,6 +10,8 @@ import subprocess
 import datetime
 from copy import deepcopy
 from othello_py import *
+import mlx.core as mx
+import mlx.nn as nn
 
 def digit(n, r):
     n = str(n)
@@ -116,20 +118,39 @@ x = [None for _ in range(ln_in)]
 ys = []
 names = ['diagonal8', 'edge2X', 'triangle']
 idx = 0
+
+class MyMLP(nn.Module):
+    def __init__(self, in_dims: int, out_dims: int, hidden_dims: int = 16):
+        super().__init__()
+
+        self.in_proj = nn.Linear(in_dims, hidden_dims)
+        self.active = nn.LeakyReLU(negative_slope=0.01)
+        self.hidden_proj = nn.Linear(hidden_dims, hidden_dims)
+        self.out_proj = nn.Linear(hidden_dims, out_dims)
+    
+    def __call__(self,x):
+        x = self.in_proj(x)
+        x = self.active(x)
+        x = self.hidden_proj(x)
+        x = self.active(x)
+        x = self.out_proj(x)
+        x = self.active(x)
+        return x
+
 for i in range(len(pattern_idx)):
-    layers = []
-    layers.append(Dense(16, name=names[i] + '_dense0'))
-    layers.append(LeakyReLU(alpha=0.01))
-    layers.append(Dense(16, name=names[i] + '_dense1'))
-    layers.append(LeakyReLU(alpha=0.01))
-    layers.append(Dense(1, name=names[i] + '_out'))
-    layers.append(LeakyReLU(alpha=0.01))
+    # layers = []
+    # layers.append(Dense(16, name=names[i] + '_dense0'))
+    # layers.append(LeakyReLU(alpha=0.01))
+    # layers.append(Dense(16, name=names[i] + '_dense1'))
+    # layers.append(LeakyReLU(alpha=0.01))
+    # layers.append(Dense(1, name=names[i] + '_out'))
+    # layers.append(LeakyReLU(alpha=0.01))
     add_elems = []
     for j in range(len(pattern_idx[i])):
         x[idx] = Input(shape=len(pattern_idx[i][0]) * 2, name=names[i] + '_in_' + str(j))
-        tmp = x[idx]
-        for layer in layers:
-            tmp = layer(tmp)
+        # for layer in layers:
+        #     tmp = layer(tmp)
+        model = MyMLP(len(pattern_idx[i]),1)
         add_elems.append(tmp)
         idx += 1
     ys.append(Add()(add_elems))
