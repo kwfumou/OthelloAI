@@ -14,7 +14,12 @@ from othello_py import *
 import mlx.core as mx
 import mlx.nn as nn
 
-from othelloAI import OthelloAILayer
+from othelloAI import OthelloAI
+import const
+import mlx.optimizers as optim
+from functools import partial
+from mlx.utils import tree_flatten
+import time
 
 
 def digit(n, r):
@@ -168,52 +173,24 @@ def eval_fn(x, y):
     return mx.mean(mx.argmax(x, axis=1) == y)
 
 
-def forward_fn(gcn, x, adj, y, train_mask, weight_decay):
-    y_hat = gcn(x, adj)
-    loss = loss_fn(y_hat[train_mask], y[train_mask], weight_decay, gcn.parameters())
-    return loss, y_hat
+def forward_fn(oai, train_list, val_list, y_train, y_val, weight_decay=0.0):
+    y_hat_train = oai(train_list)
+    y_hat_val = oai(val_list)
+    loss = loss_fn(y_hat_train, y_train, weight_decay, oai.parameters())
+    return loss, y_hat_train, y_hat_val
 
+
+# def forward_fn(gcn, x, adj, y, train_mask, weight_decay):
+#     y_hat = gcn(x, adj)
+#     loss = loss_fn(y_hat[train_mask], y[train_mask], weight_decay, gcn.parameters())
+#     return loss, y_hat
+
+# oai, x, adj, y, train_mask, args.weight_decay
 
 x = [None for _ in range(ln_in)]
 ys = []
 names = ["diagonal8", "edge2X", "triangle"]
 idx = 0
-
-
-for i in range(len(pattern_idx)):
-    # layers = []
-    # layers.append(Dense(16, name=names[i] + '_dense0'))
-    # layers.append(LeakyReLU(alpha=0.01))
-    # layers.append(Dense(16, name=names[i] + '_dense1'))
-    # layers.append(LeakyReLU(alpha=0.01))
-    # layers.append(Dense(1, name=names[i] + '_out'))
-    # layers.append(LeakyReLU(alpha=0.01))
-    add_elems = []
-    for j in range(len(pattern_idx[i])):
-        x[idx] = Input(
-            shape=len(pattern_idx[i][0]) * 2, name=names[i] + "_in_" + str(j)
-        )
-        # for layer in layers:
-        #     tmp = layer(tmp)
-        model = MyMLP(len(pattern_idx[i]), 1)
-        add_elems.append(tmp)
-        idx += 1
-    ys.append(Add()(add_elems))
-y_pattern = Concatenate(axis=-1)(ys)
-x[idx] = Input(shape=3, name="additional_input")
-y_add = Dense(8, name="add_dense0")(x[idx])
-y_add = LeakyReLU(alpha=0.01)(y_add)
-y_add = Dense(1, name="add_dense1")(y_add)
-y_add = LeakyReLU(alpha=0.01)(y_add)
-y_all = Concatenate(axis=-1)([y_pattern, y_add])
-y_all = Dense(1, name="all_dense0")(y_all)
-
-model = Model(inputs=x, outputs=y_all)
-
-model.summary()
-# plot_model(model, to_file='model.png', show_shapes=True)
-
-model.compile(loss="mse", metrics="mae", optimizer="adam")
 
 for i in trange(len(data)):
     collect_data(*data[i])
@@ -239,9 +216,73 @@ n_test_data = int(len_data * test_ratio)
 
 train_data = [arr[0:n_train_data] for arr in all_data]
 train_labels = all_labels[0:n_train_data]
+fixed_train_data = [
+    [mx.array(train_data[tp_idx][idx]) for tp_idx in range(len(train_data))]
+    for idx in range(len(train_labels))
+]
+train_data = fixed_train_data
 test_data = [arr[n_train_data:len_data] for arr in all_data]
 test_labels = all_labels[n_train_data:len_data]
+fixed_test_data = [
+    [mx.array(test_data[tp_idx][idx]) for tp_idx in range(len(test_data))]
+    for idx in range(len(test_labels))
+]
+test_data = fixed_test_data
 
+b = mx.array(all_data[0])
+
+in_dims_list = [all_data[pt_idx].shape[1] for pt_idx in range(const.pattern_size)]
+oai = OthelloAI(in_dims_list=in_dims_list, out_dims=1, hidden_dims=16)
+mx.eval(oai.parameters())
+optimizer = optim.Adam(learning_rate=const.lr)
+state = [oai.state, optimizer.state, mx.random.state]
+
+breakpoint()
+
+
+@partial(mx.compile, inputs=state, outputs=state)
+def step():
+    loss_and_grad_fn = nn.value_and_grad(oai, forward_fn)
+    (loss, y_hat_train, y_hat_val), grads = loss_and_grad_fn(
+        oai, train_data, test_data, train_labels, test_labels, const.weight_decay
+    )
+    optimizer.update(oai, grads)
+    return loss, y_hat_train, y_hat_val
+
+
+best_val_loss = float("inf")
+cnt = 0
+
+
+# Training loop
+for epoch in range(const.epochs):
+    tic = time.time()
+    loss, y_hat_train, y_hat_val = step()
+    mx.eval(state)
+    # Validation
+    val_loss = loss_fn(y_hat=y_hat_val, y=test_labels)
+    val_acc = eval_fn()
+    toc = time.time()
+    # Early stopping
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        cnt = 0
+    else:
+        cnt += 1
+        if cnt == const.patience:
+            break
+    print(
+        " | ".join(
+            [
+                f"Epoch: {epoch:3d}",
+                f"Train loss: {loss.item():.3f}",
+                f"Val loss: {val_loss.item():.3f}",
+                f"Val acc: {val_acc.item():.2f}",
+                f"Time: {1e3*(toc - tic):.3f} (ms)",
+            ]
+        )
+    )
+breakpoint()
 
 print(model.evaluate(test_data, test_labels))
 early_stop = EarlyStopping(monitor="val_loss", patience=5)
