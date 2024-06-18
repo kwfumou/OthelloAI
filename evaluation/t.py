@@ -158,42 +158,6 @@ def collect_data(board, player, v1, v2, v3, result):
     all_labels.append(result)
 
 
-def loss_fn(y_hat, y, weight_decay=0.0, parameters=None):
-    print("#" * 10)
-    print(f"loss_fn start")
-    print(f"shape y_hat={y_hat.shape}")
-    print(f"shape y={y.shape}")
-    l = mx.mean(nn.losses.cross_entropy(y_hat, y))
-    print(f"type l={type(l)}")
-    print(f"shape l={l.shape}")
-    # print(f"loss_fn l={l}")
-
-    if weight_decay != 0.0:
-        assert parameters != None, "Model parameters missing for L2 reg."
-
-        l2_reg = sum(mx.sum(p[1] ** 2) for p in tree_flatten(parameters)).sqrt()
-        return l + weight_decay * l2_reg
-    return l
-
-
-def eval_fn(x, y):
-    return mx.mean(mx.argmax(x, axis=1) == y)
-
-
-def forward_fn(oai, train_list, val_list, y_train, y_val, weight_decay=0.0):
-    y_hat_train = oai(train_list)
-    y_hat_val = oai(val_list)
-    loss = loss_fn(y_hat_train, y_train, weight_decay, oai.parameters())
-    return loss, y_hat_train, y_hat_val
-
-
-# def forward_fn(gcn, x, adj, y, train_mask, weight_decay):
-#     y_hat = gcn(x, adj)
-#     loss = loss_fn(y_hat[train_mask], y[train_mask], weight_decay, gcn.parameters())
-#     return loss, y_hat
-
-# oai, x, adj, y, train_mask, args.weight_decay
-
 x = [None for _ in range(ln_in)]
 ys = []
 names = ["diagonal8", "edge2X", "triangle"]
@@ -223,98 +187,100 @@ n_test_data = int(len_data * test_ratio)
 
 # train_data = [arr[0:n_train_data] for arr in all_data]
 train_data = [mx.array(arr[0:n_train_data]) for arr in all_data]
-train_labels = all_labels[0:n_train_data]
-# fixed_train_data = [
-#     [mx.array(train_data[tp_idx][idx]) for tp_idx in range(len(train_data))]
-#     for idx in range(len(train_labels))
-# ]
-# train_data = fixed_train_data
+train_labels = mx.array(all_labels[0:n_train_data])
+fixed_train_data = [
+    [mx.array(train_data[tp_idx][idx]) for tp_idx in range(len(train_data))]
+    for idx in range(len(train_labels))
+]
+train_data = fixed_train_data
 test_data = [mx.array(arr[n_train_data:len_data]) for arr in all_data]
-test_labels = all_labels[n_train_data:len_data]
-# fixed_test_data = [
-#     [mx.array(test_data[tp_idx][idx]) for tp_idx in range(len(test_data))]
-#     for idx in range(len(test_labels))
-# ]
-# test_data = fixed_test_data
+test_labels = mx.array(all_labels[n_train_data:len_data])
+fixed_test_data = [
+    [mx.array(test_data[tp_idx][idx]) for tp_idx in range(len(test_data))]
+    for idx in range(len(test_labels))
+]
+test_data = fixed_test_data
+print(f"len train={len(train_data)}")
+# breakpoint()
 
-# b = mx.array(all_data[0])
 
+def loss_fn(y_hat, y, parameters=None):
+    # print(f"y={y}")
+    # print(f"shape y={y.shape}")
+    # print(f"shape y_hat={y_hat.shape}")
+    # print(f"type y={type(y)}")
+    # print(f"type y_hat={type(y_hat)}")
+    # return mx.mean(nn.losses.cross_entropy(y_hat, y))
+    return (y_hat - y).square().mean()
+
+
+def forward_fn(model, x, label):
+    # y_hat = model(graph.edge_index, graph.node_features, graph.batch_indices)
+    y_hat = model(x)
+    loss = loss_fn(y_hat, label, model.parameters())
+    return loss, y_hat
+
+
+device = mx.gpu  # or mx.cpu
+mx.set_default_device(device)
+
+mx.random.seed(42)
 in_dims_list = [all_data[pt_idx].shape[1] for pt_idx in range(const.pattern_size)]
 oai = OthelloAI(in_dims_list=in_dims_list, out_dims=1, hidden_dims=16)
 mx.eval(oai.parameters())
 optimizer = optim.Adam(learning_rate=const.lr)
-state = [oai.state, optimizer.state, mx.random.state]
-
-breakpoint()
+loss_and_grad_fn = nn.value_and_grad(oai, forward_fn)
 
 
-@partial(mx.compile, inputs=state, outputs=state)
-def step():
-    print("step start")
-    loss_and_grad_fn = nn.value_and_grad(oai, forward_fn)
-    (loss, y_hat_train, y_hat_val), grads = loss_and_grad_fn(
-        oai, train_data, test_data, train_labels, test_labels, const.weight_decay
-    )
-    print(f"type grads={type(grads)}")
-    print(f"len grads={len(grads)}")
-    for key, val in grads.items():
-        print(f"key={key}")
-        print(f"val={val}")
-    optimizer.update(oai, grads)
-    print("optimized")
-    # return
-    return loss, y_hat_train, y_hat_val
+def train(train_loader, train_labels):
+    loss_sum = 0.0
+    for idx, dt in enumerate(train_loader):
+
+        (loss, y_hat), grads = loss_and_grad_fn(
+            model=oai,
+            x=dt,
+            label=train_labels[idx],
+        )
+        optimizer.update(oai, grads)
+        mx.eval(oai.parameters(), optimizer.state)
+        loss_sum += loss.item()
+    return loss_sum / len(train_loader)
 
 
-best_val_loss = float("inf")
-cnt = 0
+def test(test_loader, test_label):
+    loss_sum = 0.0
+    for dt in test_loader:
+        (loss, y_hat), grads = loss_and_grad_fn(
+            model=oai,
+            x=dt,
+            label=test_label,
+        )
+        loss_sum += loss.item()
+    return loss_sum / len(test_loader)
 
 
-# Training loop
-for epoch in range(const.epochs):
-    tic = time.time()
-    loss, y_hat_train, y_hat_val = step()
-    # step()
-    print("step finish")
-    print(f"loss={loss}")
-    mx.eval(state)
-    print("eval finish")
-    # Validation
-    val_loss = loss_fn(y_hat=y_hat_val, y=test_labels)
-    val_acc = eval_fn()
-    toc = time.time()
-    # Early stopping
-    if val_loss < best_val_loss:
-        best_val_loss = val_loss
-        cnt = 0
-    else:
-        cnt += 1
-        if cnt == const.patience:
-            break
+def epoch():
+    loss = train(train_data, train_labels)
+    test_loss = test(test_data, test_labels)
+    return loss, test_loss
+
+
+epochs = 30
+best_test_loss = 0.0
+for e in range(epochs):
+    start_time = time.time()
+    loss, test_loss = epoch()
+    best_test_loss = max(best_test_loss, test_loss)
+    end_time = time.time()
+
     print(
         " | ".join(
             [
-                f"Epoch: {epoch:3d}",
-                f"Train loss: {loss.item():.3f}",
-                f"Val loss: {val_loss.item():.3f}",
-                f"Val acc: {val_acc.item():.2f}",
-                f"Time: {1e3*(toc - tic):.3f} (ms)",
+                f"Epoch: {e:3d}",
+                f"Train loss: {loss:.3f}",
+                f"Test loss: {test_loss:.3f}",
+                f"time={end_time-start_time:.3f}",
             ]
         )
     )
-breakpoint()
-
-print(model.evaluate(test_data, test_labels))
-early_stop = EarlyStopping(monitor="val_loss", patience=5)
-history = model.fit(
-    train_data,
-    train_labels,
-    epochs=n_epochs,
-    validation_data=(test_data, test_labels),
-    callbacks=[early_stop],
-)
-
-now = datetime.datetime.today()
-model.save("models/model.h5")
-
-subprocess.run("python output_model.py model.h5 model.txt".split())
+# print(f"\n==> Best test accuracy: {best_test_acc:.3f}")
