@@ -35,8 +35,10 @@ records = []
 # for num in range(1):
 #     with open("self_play/" + digit(num, 7) + ".txt", "r") as f:
 #         records.extend(list(f.read().splitlines()))
-with open("self_play/0.txt", "r") as f:
+# with open("self_play/0.txt", "r") as f:
+with open("self_play/0000000.txt", "r") as f:
     records.extend(list(f.read().splitlines()))
+records = [records[idx] for idx in range(int(len(records) / 2))]
 data = []
 evaluate_additional = subprocess.Popen(
     "./evaluate.out".split(), stdin=subprocess.PIPE, stdout=subprocess.PIPE
@@ -188,29 +190,27 @@ n_test_data = int(len_data * test_ratio)
 # train_data = [arr[0:n_train_data] for arr in all_data]
 train_data = [mx.array(arr[0:n_train_data]) for arr in all_data]
 train_labels = mx.array(all_labels[0:n_train_data])
-fixed_train_data = [
-    [mx.array(train_data[tp_idx][idx]) for tp_idx in range(len(train_data))]
-    for idx in range(len(train_labels))
-]
-train_data = fixed_train_data
+# fixed_train_data = [
+#     [mx.array(train_data[tp_idx][idx]) for tp_idx in range(len(train_data))]
+#     for idx in range(len(train_labels))
+# ]
+# train_data = fixed_train_data
 test_data = [mx.array(arr[n_train_data:len_data]) for arr in all_data]
 test_labels = mx.array(all_labels[n_train_data:len_data])
-fixed_test_data = [
-    [mx.array(test_data[tp_idx][idx]) for tp_idx in range(len(test_data))]
-    for idx in range(len(test_labels))
-]
-test_data = fixed_test_data
+# fixed_test_data = [
+#     [mx.array(test_data[tp_idx][idx]) for tp_idx in range(len(test_data))]
+#     for idx in range(len(test_labels))
+# ]
+# test_data = fixed_test_data
 print(f"len train={len(train_data)}")
 # breakpoint()
 
 
 def loss_fn(y_hat, y, parameters=None):
-    # print(f"y={y}")
-    # print(f"shape y={y.shape}")
-    # print(f"shape y_hat={y_hat.shape}")
-    # print(f"type y={type(y)}")
-    # print(f"type y_hat={type(y_hat)}")
     # return mx.mean(nn.losses.cross_entropy(y_hat, y))
+    print(f" y={y}")
+    print(f"shape y={y.shape}")
+    print(f"shape y_hat={y_hat.shape}")
     return (y_hat - y).square().mean()
 
 
@@ -234,43 +234,44 @@ loss_and_grad_fn = nn.value_and_grad(oai, forward_fn)
 
 def train(train_loader, train_labels):
     loss_sum = 0.0
-    for idx, dt in enumerate(train_loader):
+    # for idx, dt in enumerate(train_loader):
 
-        (loss, y_hat), grads = loss_and_grad_fn(
-            model=oai,
-            x=dt,
-            label=train_labels[idx],
-        )
-        optimizer.update(oai, grads)
-        mx.eval(oai.parameters(), optimizer.state)
-        loss_sum += loss.item()
+    (loss, y_hat), grads = loss_and_grad_fn(
+        model=oai,
+        x=train_loader,
+        label=train_labels,
+    )
+    optimizer.update(oai, grads)
+    mx.eval(oai.parameters(), optimizer.state)
+    loss_sum += loss.item()
     return loss_sum / len(train_loader)
 
 
 def test(test_loader, test_label):
     loss_sum = 0.0
-    for dt in test_loader:
-        (loss, y_hat), grads = loss_and_grad_fn(
-            model=oai,
-            x=dt,
-            label=test_label,
-        )
-        loss_sum += loss.item()
+    # for dt in test_loader:
+    (loss, y_hat), grads = loss_and_grad_fn(
+        model=oai,
+        x=test_loader,
+        label=test_label,
+    )
+    loss_sum += loss.item()
     return loss_sum / len(test_loader)
 
 
 def epoch():
+
     loss = train(train_data, train_labels)
     test_loss = test(test_data, test_labels)
     return loss, test_loss
 
 
 epochs = 30
-best_test_loss = 0.0
+best_test_loss = 1000.0
 for e in range(epochs):
     start_time = time.time()
     loss, test_loss = epoch()
-    best_test_loss = max(best_test_loss, test_loss)
+    best_test_loss = min(best_test_loss, test_loss)
     end_time = time.time()
 
     print(

@@ -49,6 +49,7 @@ class OthelloAI(nn.Module):
 
         y_list = []
         for idx in range(len(self.ai_layers)):
+            # print(f"shape x_list[{idx}]={x_list[idx].shape}")
             tmp = self.ai_layers[idx](x_list[idx])
             # print(f"shape tmp={tmp.shape}")
             y_list += [tmp]
@@ -57,4 +58,4 @@ class OthelloAI(nn.Module):
         # print(f"shape y_list={y_list.shape}")
         y_pattern = mx.concatenate(y_list)
         # print(f"shape y_pattern={y_pattern.shape}")
-        return y_pattern[0]
+        return y_pattern
