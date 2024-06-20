@@ -15,8 +15,6 @@ import mlx.core as mx
 import mlx.nn as nn
 
 from othelloAI import OthelloAI
-
-# from othelloAI_new import OthelloAI
 import const
 import mlx.optimizers as optim
 from functools import partial
@@ -24,11 +22,12 @@ from mlx.utils import tree_flatten
 import time
 import os
 
-debug = True
-batch_size = 100
-test_batch_size = 10
+debug = False
+batch_size = 1000
+test_batch_size = 100
 weight_dir = "weight_new"
-epochs = 1000
+weight_name = "latest_weight.npz"
+# weight_name = "weight_epoch0007000_loss2.16"
 
 
 def digit(n, r):
@@ -42,7 +41,7 @@ def digit(n, r):
 # 棋譜から盤面データを作る
 records = []
 if not debug:
-    for num in range(20):
+    for num in range(1):
         with open("self_play/" + digit(num, 7) + ".txt", "r") as f:
             records.extend(list(f.read().splitlines()))
 else:
@@ -213,15 +212,13 @@ print(f"len train_data={len(train_data)}")
 print(f"len train_data[0]={len(train_data[0])}")
 for idx in range(len(train_data)):
     print(f"train_data[{idx}][0].shape={train_data[idx][0].shape}")
-for idx in range(21):
-    print(f"train_data[0][{idx}].shape={train_data[0][idx].shape}")
 print(f"len train_data={len(train_labels)}")
 print(f"len train_data[0]={len(train_labels[0])}")
 for idx in range(len(train_labels)):
     print(f"train_data[{idx}].shape={train_labels[idx].shape}")
 # train_data = [mx.array(arr[0:n_train_data]) for arr in all_data]
 # train_labels = mx.array(all_labels[0:n_train_data])
-breakpoint()
+
 test_data = [
     [mx.array(arr[idx : idx + test_batch_size]) for arr in all_data]
     for idx in range(n_train_data, len_data - test_batch_size, test_batch_size)
@@ -268,24 +265,10 @@ mx.set_default_device(device)
 mx.random.seed(42)
 in_dims_list = [all_data[pt_idx].shape[1] for pt_idx in range(const.pattern_size)]
 oai = OthelloAI(in_dims_list=in_dims_list, out_dims=1, hidden_dims=16)
+oai.load_weights(os.path.join(weight_dir, weight_name))
 mx.eval(oai.parameters())
-optimizer = optim.Adam(learning_rate=const.lr)
+# optimizer = optim.Adam(learning_rate=const.lr)
 loss_and_grad_fn = nn.value_and_grad(oai, forward_fn)
-
-
-def train(train_loader, train_labels):
-    loss_sum = 0.0
-    # for idx, dt in enumerate(train_loader):
-
-    (loss, y_hat), grads = loss_and_grad_fn(
-        model=oai,
-        x=train_loader,
-        label=train_labels,
-    )
-    optimizer.update(oai, grads)
-    mx.eval(oai.parameters(), optimizer.state)
-    loss_sum += loss.item()
-    return loss_sum / len(train_loader)
 
 
 def test(test_loader, test_label):
@@ -302,33 +285,24 @@ def test(test_loader, test_label):
 
 
 def epoch(idx: int):
-    loss = train(train_data[idx % len(train_data)], train_labels[idx % len(train_data)])
-    test_loss = test(test_data[idx % len(test_data)], test_labels[idx % len(test_data)])
-    return loss, test_loss
+    test_loss = test(test_data[idx], test_labels[idx])
+    return test_loss
 
 
+epochs = len(test_data)
 best_test_loss = 1000.0
 for e in range(epochs):
     start_time = time.time()
-    loss, test_loss = epoch(e)
+    test_loss = epoch(e)
     best_test_loss = min(best_test_loss, test_loss)
     end_time = time.time()
 
     print(
         " | ".join(
             [
-                f"Epoch: {e:3d}",
-                f"Train loss: {loss:.5f}",
                 f"Test loss: {test_loss:.5f}",
                 f"time={end_time-start_time:.3f}",
             ]
         )
     )
-    if not os.path.isdir(weight_dir):
-        os.mkdir(weight_dir)
-    if e % 1000 == 0:
-        oai.save_weights(
-            os.path.join(weight_dir, f"weight_epoch{e:07}_loss{test_loss:.03}.npz")
-        )
-        oai.save_weights(os.path.join(weight_dir, f"latest_weight.npz"))
 # print(f"\n==> Best test accuracy: {best_test_acc:.3f}")

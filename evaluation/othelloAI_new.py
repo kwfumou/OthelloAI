@@ -34,14 +34,23 @@ class OthelloAILayer(nn.Module):
 
 
 class OthelloAI(nn.Module):
-    def __init__(self, in_dims_list: List[int], out_dims: int, hidden_dims: int):
+    def __init__(
+        self,
+        in_dims_list: List[int],
+        out_dims: int,
+        hidden_dims: int,
+        hidden_add_dims: int,
+    ):
         super(OthelloAI, self).__init__()
         # print(f"in_dims_list={in_dims_list}")
         self.ai_layers: List[OthelloAILayer] = []
-        for in_dims in in_dims_list:
+        for in_dims in in_dims_list[:-1]:
             self.ai_layers.append(
                 OthelloAILayer(in_dims=in_dims, out_dims=1, hidden_dims=hidden_dims)
             )
+        self.add_proj = OthelloAILayer(
+            in_dims=in_dims_list[-1], out_dims=1, hidden_dims=hidden_add_dims
+        )
         # print(f"len in_dims_list={len(in_dims_list)}")
         self.out_proj = nn.Linear(len(in_dims_list), out_dims)
 
@@ -53,10 +62,13 @@ class OthelloAI(nn.Module):
             tmp = self.ai_layers[idx](x_list[idx])
             # print(f"shape tmp={tmp.shape}")
             y_list += [tmp]
+        y_add = self.add_proj(x_list[-1])
         y_list = mx.array(y_list).T
         y_list = self.out_proj(y_list)
-        # print(f"shape y_list={y_list.shape}")
-        y_pattern = mx.concatenate(y_list)
-        y_pattern = mx.concatenate(y_pattern)
+        print(f"shape y_list={y_list.shape}")
+        print(f"shape y_add={y_add.shape}")
+        # y_pattern = mx.concatenate(y_list)
+
+        # y_pattern = mx.concatenate(y_pattern)
         # print(f"shape y_pattern={y_pattern.shape}")
-        return y_pattern
+        return y_list
