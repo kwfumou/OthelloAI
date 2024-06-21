@@ -24,9 +24,9 @@ from mlx.utils import tree_flatten
 import time
 import os
 
-debug = True
-batch_size = 100
-test_batch_size = 10
+debug = False
+batch_size = 10000
+test_batch_size = 1000
 weight_dir = "weight_new"
 epochs = 1000
 
@@ -160,7 +160,7 @@ def collect_data(board, player, v1, v2, v3, result):
     v1 = float(v1)
     v2 = float(v2)
     v3 = float(v3)
-    result = float(result)  # / 64
+    result = float(result) / 64
     player = int(player)
     idx = 0
     for i in range(len(pattern_idx)):
@@ -215,10 +215,10 @@ for idx in range(len(train_data)):
     print(f"train_data[{idx}][0].shape={train_data[idx][0].shape}")
 for idx in range(21):
     print(f"train_data[0][{idx}].shape={train_data[0][idx].shape}")
-print(f"len train_data={len(train_labels)}")
-print(f"len train_data[0]={len(train_labels[0])}")
+print(f"len train_labels={len(train_labels)}")
+print(f"len train_labels[0]={len(train_labels[0])}")
 for idx in range(len(train_labels)):
-    print(f"train_data[{idx}].shape={train_labels[idx].shape}")
+    print(f"train_labels[{idx}].shape={train_labels[idx].shape}")
 # train_data = [mx.array(arr[0:n_train_data]) for arr in all_data]
 # train_labels = mx.array(all_labels[0:n_train_data])
 breakpoint()
@@ -267,6 +267,7 @@ mx.set_default_device(device)
 
 mx.random.seed(42)
 in_dims_list = [all_data[pt_idx].shape[1] for pt_idx in range(const.pattern_size)]
+# oai = OthelloAI(in_dims_list=in_dims_list, out_dims=1, hidden_dims=16)
 oai = OthelloAI(in_dims_list=in_dims_list, out_dims=1, hidden_dims=16)
 mx.eval(oai.parameters())
 optimizer = optim.Adam(learning_rate=const.lr)
